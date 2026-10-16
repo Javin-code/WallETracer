@@ -1,0 +1,1279 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WALL-E and EVE's Signal</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<style>
+  body { background:#0f172a; }
+  #log::-webkit-scrollbar, textarea::-webkit-scrollbar { width: 8px; }
+  #log::-webkit-scrollbar-thumb, textarea::-webkit-scrollbar-thumb { background:#334155; border-radius:4px; }
+  .log-line { border-left: 3px solid transparent; }
+  .log-INFO   { border-color:#38bdf8; }
+  .log-ACTION { border-color:#facc15; }
+  .log-OBS    { border-color:#34d399; }
+  .log-BELIEF { border-color:#c084fc; }
+  .log-REASON { border-color:#fb923c; }
+  .log-ERROR  { border-color:#f87171; color:#fca5a5; }
+  .pad-btn { background:#334155; border-radius:6px; padding:6px 0; font-weight:600; }
+  .pad-btn:hover { background:#475569; }
+  .pad-btn:disabled { opacity:.4; cursor:not-allowed; }
+  #reportOverlay { backdrop-filter: blur(8px); }
+  .report-metric { border: 1px solid rgba(148,163,184,.16); background: rgba(15,23,42,.72); }
+  #reportCard { animation: report-in 220ms ease-out; }
+  @keyframes report-in {
+    from { opacity: 0; transform: translateY(10px) scale(.98); }
+    to { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    #reportCard { animation: none; }
+  }</style>
+</head>
+<body class="text-slate-200 h-screen flex flex-col font-sans">
+
+<header class="px-4 py-2 bg-slate-900 border-b border-slate-700 flex items-center justify-between">
+  <h1 class="text-lg font-bold tracking-wide text-amber-300">WALL-E and EVE's Signal</h1>
+  <span id="status" class="text-xs text-slate-400">No config loaded</span>
+</header>
+
+<main class="flex flex-1 min-h-0">
+
+  <!-- LEFT: Controls / Config -->
+  <aside class="w-80 shrink-0 bg-slate-900 border-r border-slate-700 p-3 flex flex-col gap-3 overflow-y-auto">
+    <div>
+      <label class="text-xs uppercase text-slate-400">Simulation Config (JSON)</label>
+      <textarea id="configInput" spellcheck="false"
+        class="w-full h-52 mt-1 p-2 bg-slate-950 border border-slate-700 rounded text-xs font-mono text-emerald-300 focus:outline-none focus:border-amber-400"></textarea>
+      <p id="configError" class="text-xs text-red-400 mt-1 min-h-[1rem]"></p>
+    </div>
+
+    <div class="flex gap-2">
+      <button id="btnLoad" class="flex-1 bg-amber-500 hover:bg-amber-400 text-slate-900 font-semibold rounded py-1.5 text-sm">Load Config</button>
+      <button id="btnDefault" class="flex-1 bg-slate-700 hover:bg-slate-600 rounded py-1.5 text-sm">Reset Default</button>
+    </div>
+
+    <div class="flex gap-2">
+      <button id="btnRandomSeed" class="flex-1 bg-slate-700 hover:bg-slate-600 rounded py-1.5 text-sm">New Seed</button>
+      <button id="btnClearLog" class="flex-1 bg-slate-700 hover:bg-slate-600 rounded py-1.5 text-sm">Clear Log</button>
+    </div>
+
+    <label class="flex items-center gap-2 text-sm">
+      <input id="chkDebug" type="checkbox" class="accent-amber-400" />
+      Debug: reveal EVE and clues
+    </label>
+
+    <!-- Agent controls -->
+    <div class="bg-slate-950 border border-slate-700 rounded p-2 space-y-2">
+      <div class="text-xs uppercase text-slate-400">Autonomous Agent</div>
+      <div class="flex gap-2">
+        <button id="btnRun" class="flex-1 bg-emerald-600 hover:bg-emerald-500 rounded py-1.5 text-sm font-semibold">▶ Run</button>
+        <button id="btnStep" class="flex-1 bg-slate-700 hover:bg-slate-600 rounded py-1.5 text-sm">Step</button>
+      </div>
+      <label class="flex items-center gap-2 text-sm">
+        <input id="chkHeat" type="checkbox" checked class="accent-fuchsia-400" />
+        Show belief heatmap &amp; plan
+      </label>
+      <div class="text-xs space-y-0.5">
+        <div class="flex justify-between"><span class="text-slate-400">Mode</span><span id="hudMode" class="font-semibold">-</span></div>
+        <div class="flex justify-between"><span class="text-slate-400">Target tile</span><span id="hudTarget">-</span></div>
+        <div class="flex justify-between"><span class="text-slate-400">Walk home</span><span id="hudReturn">-</span></div>
+        <div class="flex justify-between"><span class="text-slate-400">Recharges</span><span id="hudRecharges">0</span></div>
+      </div>
+    </div>
+
+    <!-- Manual controls (for testing executeAction) -->
+    <div class="bg-slate-950 border border-slate-700 rounded p-2">
+      <div class="text-xs uppercase text-slate-400 mb-2">Manual Actions</div>
+      <div class="grid grid-cols-3 gap-1 w-40 mx-auto">
+        <span></span><button class="pad-btn" data-dir="N" title="Move north (W / ↑)">▲</button><span></span>
+        <button class="pad-btn" data-dir="W" title="Move west (A / ←)">◀</button>
+        <button id="btnScan" class="pad-btn !bg-emerald-600 hover:!bg-emerald-500 text-xs" title="Scan (Space)">SCAN</button>
+        <button class="pad-btn" data-dir="E" title="Move east (D / →)">▶</button>
+        <span></span><button class="pad-btn" data-dir="S" title="Move south (S / ↓)">▼</button><span></span>
+      </div>
+      <div class="text-[11px] text-slate-500 mt-2 text-center">Keys: arrows / WASD to move, Space to scan</div>
+    </div>
+
+    <div class="bg-slate-950 border border-slate-700 rounded p-2 text-sm space-y-1">
+      <div class="flex justify-between"><span class="text-slate-400">Step</span><span id="hudStep">0</span></div>
+      <div class="flex justify-between"><span class="text-slate-400">Time remaining</span><span id="hudTime">-</span></div>
+      <div class="flex justify-between"><span class="text-slate-400">WALL-E tile</span><span id="hudPos">-</span></div>
+      <div class="flex justify-between"><span class="text-slate-400">Battery</span><span id="hudBattery">-</span></div>
+      <div class="h-2 bg-slate-800 rounded overflow-hidden"><div id="batteryBar" class="h-full bg-emerald-400" style="width:0%"></div></div>
+      <div class="flex justify-between"><span class="text-slate-400">Last signal</span><span id="hudSignal">-</span></div>
+      <div class="h-2 bg-slate-800 rounded overflow-hidden"><div id="signalBar" class="h-full bg-pink-400" style="width:0%"></div></div>
+    </div>
+
+    <div class="text-xs text-slate-500">
+      Legend: <span class="text-sky-400">blue</span> = base, <span class="text-amber-300">yellow</span> = WALL-E,
+      <span class="text-slate-400">gray</span> = obstacle, <span class="text-pink-400">pink</span> = EVE and
+      <span class="text-violet-400">violet</span> = clues (debug only).
+      <span class="text-sky-400">Blue</span> = low belief; <span class="text-orange-400">orange</span> to <span class="text-red-400">red</span> = stronger belief EVE is there.
+    </div>
+  </aside>
+
+  <!-- CENTER: Canvas -->
+  <section class="flex-1 min-w-0 flex items-center justify-center p-3 bg-slate-950">
+    <canvas id="gridCanvas" width="640" height="640" class="border border-slate-700 rounded bg-slate-900 max-w-full max-h-full"></canvas>
+  </section>
+
+  <!-- RIGHT: Trace log -->
+  <aside class="w-96 shrink-0 bg-slate-900 border-l border-slate-700 flex flex-col min-h-0">
+    <div class="px-3 py-2 border-b border-slate-700 text-xs uppercase text-slate-400">Live Action Trace Log</div>
+    <div id="log" class="flex-1 overflow-y-auto p-2 font-mono text-xs space-y-1"></div>
+  </aside>
+
+</main>
+
+<div id="reportOverlay" class="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/80 p-4 hidden" role="dialog" aria-modal="true" aria-labelledby="reportTitle">
+  <section id="reportCard" class="w-full max-w-xl rounded-2xl border border-slate-600 bg-slate-900 shadow-2xl shadow-black/60">
+    <div class="border-b border-slate-700 px-6 py-5">
+      <div class="flex items-start justify-between gap-4">
+        <div>
+          <p id="reportStatus" class="text-xs font-bold uppercase tracking-[0.2em] text-amber-300">Mission report</p>
+          <h2 id="reportTitle" class="mt-1 text-2xl font-bold text-white">Final Mission Report</h2>
+          <p id="reportSummary" class="mt-2 text-sm text-slate-400"></p>
+        </div>
+        <button id="btnReportClose" type="button" aria-label="Close report" class="rounded-lg px-3 py-1 text-xl text-slate-400 hover:bg-slate-800 hover:text-white">X</button>
+      </div>
+    </div>
+    <div class="grid grid-cols-1 gap-3 px-6 py-5 sm:grid-cols-3">
+      <div class="report-metric rounded-xl p-4">
+        <div class="text-[11px] uppercase tracking-wide text-slate-400">Clues discovered</div>
+        <div id="reportClues" class="mt-2 text-lg font-semibold text-violet-300">0 / 0</div>
+      </div>
+      <div class="report-metric rounded-xl p-4">
+        <div class="text-[11px] uppercase tracking-wide text-slate-400">Inferred coordinates</div>
+        <div id="reportCoords" class="mt-2 text-lg font-semibold text-sky-300">-</div>
+      </div>
+      <div class="report-metric rounded-xl p-4">
+        <div class="text-[11px] uppercase tracking-wide text-slate-400">Final confidence level</div>
+        <div id="reportConfidence" class="mt-2 text-lg font-semibold text-orange-300">0%</div>
+      </div>
+    </div>
+    <div class="mx-6 mb-5 rounded-xl border border-amber-500/30 bg-amber-500/10 p-4">
+      <div class="text-xs font-bold uppercase tracking-wide text-amber-300">Recommended next step</div>
+      <p id="reportNextStep" class="mt-2 text-sm leading-relaxed text-slate-200"></p>
+    </div>
+    <div class="flex justify-end border-t border-slate-700 px-6 py-4">
+      <button id="btnExportReport" type="button" class="mr-auto rounded-lg bg-sky-700 px-4 py-2 text-sm font-semibold text-white hover:bg-sky-600">Download trace + report</button>
+      <button id="btnReportCloseFooter" type="button" class="rounded-lg bg-slate-700 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-600">Close report</button>
+    </div>
+  </section>
+</div>
+
+<script>
+/* ============================================================
+   1. DEFAULT CONFIG
+   Costs are battery deltas: negative numbers are subtracted.
+   ============================================================ */
+const AGENT_DEFAULTS = {
+  tickMs: 1500,          // time between autonomous decisions
+  scanEvery: 5,          // take a fresh scan after this many moves
+  strongThreshold: 0.6,  // signal >= this is labelled "strong"
+  weakThreshold: 0.25,   // signal <= this is labelled "weak"
+  farFloor: 0.6,         // neutral weight for tiles beyond the estimated source distance
+  commitRatio: 0.8       // keep the current target while its probability is >= this fraction of the best tile's
+};
+
+const DEFAULT_CONFIG = {
+  seed: 42,
+  grid: { width: 16, height: 16, obstacleDensity: 0.15 },
+  base: { x: 0, y: 0 },
+  battery: { max: 100, returnReserve: 5 },
+  costs: { move: -1, scan: -3 },
+  signal: { maxRange: 12, noiseStd: 0.05 },
+  mission: { timeBudget: 240 },
+  initialSignal: { origin: { x: 0, y: 0 }, strength: 0.15, direction: null, timestamp: 0 },
+  clueCount: 3,
+  agent: { ...AGENT_DEFAULTS }
+};
+
+/* ============================================================
+   2. UTILITIES: seeded RNG + logger
+   ============================================================ */
+function mulberry32(a) {
+  return function () {
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+const logEl = document.getElementById('log');
+let logStep = 0;
+function log(type, message) {
+  const line = document.createElement('div');
+  line.className = `log-line log-${type} pl-2 py-0.5`;
+  const ts = String(logStep++).padStart(4, '0');
+  line.innerHTML = `<span class="text-slate-500">[${ts}]</span> <span class="text-slate-400">${type}</span> ${escapeHtml(message)}`;
+  logEl.appendChild(line);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+}
+
+/* ============================================================
+   3. CONFIG VALIDATION
+   ============================================================ */
+function validateConfig(c) {
+  const errs = [];
+  const isNum = v => typeof v === 'number' && isFinite(v);
+  if (!c || typeof c !== 'object') return ['config must be a JSON object'];
+  if (!isNum(c.seed)) errs.push('seed must be a number');
+  if (!c.grid || !Number.isInteger(c.grid.width) || !Number.isInteger(c.grid.height) ||
+      c.grid.width < 4 || c.grid.height < 4 || c.grid.width > 64 || c.grid.height > 64)
+    errs.push('grid.width/height must be integers between 4 and 64');
+  if (!c.grid || !isNum(c.grid.obstacleDensity) || c.grid.obstacleDensity < 0 || c.grid.obstacleDensity > 0.6)
+    errs.push('grid.obstacleDensity must be between 0 and 0.6');
+  if (!c.base || !Number.isInteger(c.base.x) || !Number.isInteger(c.base.y)) errs.push('base.x/y must be integers');
+  else if (c.grid && (c.base.x < 0 || c.base.y < 0 || c.base.x >= c.grid.width || c.base.y >= c.grid.height))
+    errs.push('base must be inside the grid');
+  if (!c.battery || !isNum(c.battery.max) || c.battery.max <= 0) errs.push('battery.max must be > 0');
+  if (!c.battery || !isNum(c.battery.returnReserve) || c.battery.returnReserve < 0) errs.push('battery.returnReserve must be >= 0');
+  if (!c.costs || !isNum(c.costs.move) || !isNum(c.costs.scan) || c.costs.move > 0 || c.costs.scan > 0)
+    errs.push('costs.move and costs.scan must be numbers <= 0 (battery deltas, e.g. -1 and -3)');
+  if (!c.signal || !isNum(c.signal.maxRange) || c.signal.maxRange <= 0) errs.push('signal.maxRange must be > 0');
+  if (!c.signal || !isNum(c.signal.noiseStd) || c.signal.noiseStd < 0) errs.push('signal.noiseStd must be >= 0');
+  if (c.clueCount !== undefined && (!Number.isInteger(c.clueCount) || c.clueCount < 0 || c.clueCount > 20))
+    errs.push('clueCount must be an integer between 0 and 20');
+  if (c.mission !== undefined && (!c.mission || typeof c.mission !== 'object' ||
+      !Number.isInteger(c.mission.timeBudget) || c.mission.timeBudget < 1))
+    errs.push('mission.timeBudget must be a positive integer');
+  if (c.initialSignal !== undefined) {
+    const s = c.initialSignal;
+    if (!s || typeof s !== 'object' || !s.origin || !Number.isInteger(s.origin.x) || !Number.isInteger(s.origin.y) ||
+        !isNum(s.strength) || s.strength < 0 || s.strength > 1 ||
+        (s.direction !== undefined && s.direction !== null && !['N', 'S', 'E', 'W'].includes(String(s.direction).toUpperCase())) ||
+        (s.timestamp !== undefined && (!isNum(s.timestamp) || s.timestamp < 0)))
+      errs.push('initialSignal needs an origin, strength from 0 to 1, optional N/S/E/W direction, and non-negative timestamp');
+    else if (c.grid && (s.origin.x < 0 || s.origin.y < 0 || s.origin.x >= c.grid.width || s.origin.y >= c.grid.height))
+      errs.push('initialSignal.origin must be inside the grid');
+  }
+  if (c.agent !== undefined) {    const g = c.agent;
+    if (!g || typeof g !== 'object') errs.push('agent must be an object');
+    else {
+      if (g.tickMs !== undefined && (!isNum(g.tickMs) || g.tickMs < 50)) errs.push('agent.tickMs must be >= 50');
+      if (g.scanEvery !== undefined && (!Number.isInteger(g.scanEvery) || g.scanEvery < 1)) errs.push('agent.scanEvery must be an integer >= 1');
+      for (const k of ['strongThreshold', 'weakThreshold'])
+        if (g[k] !== undefined && (!isNum(g[k]) || g[k] < 0 || g[k] > 1)) errs.push(`agent.${k} must be between 0 and 1`);
+      if (g.farFloor !== undefined && (!isNum(g.farFloor) || g.farFloor <= 0 || g.farFloor > 1)) errs.push('agent.farFloor must be in (0, 1]');
+    }
+  }
+  return errs;
+}
+
+/* ============================================================
+   4. SIMULATION ENVIRONMENT
+   The agent only ever sees what executeAction() returns:
+   { coords, battery, signalStrength, ... }. The target and clue
+   positions are private to the environment.
+   ============================================================ */
+/* CLASS START */
+class SimulationEnvironment {
+  static DIRS = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] };
+
+  constructor(cfg) {
+    this.cfg = cfg;
+    this.w = cfg.grid.width;
+    this.h = cfg.grid.height;
+    this.base = { ...cfg.base };
+    this.costs = { move: cfg.costs.move, scan: cfg.costs.scan };
+    this.maxBattery = cfg.battery.max;
+    this.timeBudget = cfg.mission ? cfg.mission.timeBudget : 250;
+    this.signalCfg = { ...cfg.signal };
+
+    // Two independent seeded streams so scanning noise never disturbs map layout.
+    const mapRng = mulberry32(cfg.seed);
+    this.noiseRng = mulberry32((cfg.seed ^ 0x9E3779B9) >>> 0);
+
+    // Re-roll the obstacle layout if the base is walled in (too little reachable space
+    // to hide EVE + clues). Falls back to an open grid after 50 attempts.
+    const clueCount = cfg.clueCount ?? 3;
+    for (let attempt = 0; ; attempt++) {
+      this.cells = attempt < 50 ? this._generateObstacles(mapRng) : new Array(this.w * this.h).fill(0);
+      if (this._reachableCells().length >= clueCount + 2) break;
+    }
+    this._placeHidden(mapRng, clueCount);
+    this._foundClues = new Set();
+
+    this.agent = { ...this.base };
+    this.battery = this.maxBattery;
+    this.step = 0;
+    this.lastSignal = null;
+    this.visited = new Set([this._key(this.agent.x, this.agent.y)]);
+  }
+
+  /* ---------- world generation ---------- */
+  _key(x, y) { return x + ',' + y; }
+  _idx(x, y) { return y * this.w + x; }
+  inBounds(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; }
+  isBlocked(x, y) { return this.cells[this._idx(x, y)] === 1; }
+
+  _generateObstacles(rng) {
+    const cells = new Array(this.w * this.h);
+    for (let i = 0; i < cells.length; i++) cells[i] = rng() < this.cfg.grid.obstacleDensity ? 1 : 0;
+    cells[this._idx(this.base.x, this.base.y)] = 0;
+    return cells;
+  }
+
+  // BFS from base so EVE and clues are always reachable.
+  _reachableCells() {
+    const seen = new Set([this._key(this.base.x, this.base.y)]);
+    const queue = [{ ...this.base, d: 0 }];
+    const out = [];
+    while (queue.length) {
+      const p = queue.shift();
+      out.push(p);                       // each entry carries its walking distance `d` from base
+      for (const [dx, dy] of Object.values(SimulationEnvironment.DIRS)) {
+        const nx = p.x + dx, ny = p.y + dy, k = this._key(nx, ny);
+        if (this.inBounds(nx, ny) && !this.isBlocked(nx, ny) && !seen.has(k)) { seen.add(k); queue.push({ x: nx, y: ny, d: p.d + 1 }); }
+      }
+    }
+    return out;
+  }
+
+  _placeHidden(rng, clueCount) {
+    let pool = this._reachableCells().filter(p => !(p.x === this.base.x && p.y === this.base.y));
+    // Keep the puzzle solvable: hide things only where a full battery can cover the round trip,
+    // assuming roughly one scan per 3 moves (outbound ≈ move + scan/3 per tile, return = move per tile).
+    const mc = Math.abs(this.costs.move), sc = Math.abs(this.costs.scan);
+    const maxD = mc > 0 ? Math.floor((this.maxBattery - this.cfg.battery.returnReserve - Math.max(2 * mc, sc)) / (3 * mc)) : Infinity;
+    const inRange = pool.filter(p => p.d <= maxD);
+    if (inRange.length >= clueCount + 1) pool = inRange;
+    const take = (candidates) => {
+      const list = candidates.length ? candidates : pool;
+      const pick = list[Math.floor(rng() * list.length)];
+      const i = pool.findIndex(p => p.x === pick.x && p.y === pick.y);
+      if (i >= 0) pool.splice(i, 1);
+      return { x: pick.x, y: pick.y };
+    };
+    const minDist = Math.floor(Math.max(this.w, this.h) / 3);
+    const far = pool.filter(p => Math.abs(p.x - this.base.x) + Math.abs(p.y - this.base.y) >= minDist);
+    this._eve = take(far);
+    this._clues = [];
+    for (let i = 0; i < clueCount && pool.length; i++) this._clues.push(take(pool));
+  }
+
+  /* ---------- signal model ---------- */
+  _gaussian() {
+    const u = Math.max(this.noiseRng(), 1e-12), v = this.noiseRng();
+    return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+  }
+
+  // Nearest source (target or clue) by Manhattan distance.
+  _nearestSource() {
+    let best = { dist: Infinity, kind: null };
+    const consider = (p, kind) => {
+      const d = Math.abs(p.x - this.agent.x) + Math.abs(p.y - this.agent.y);
+      if (d < best.dist) best = { dist: d, kind };
+    };
+    consider(this._eve, 'EVE');
+    this._clues.forEach((c, i) => consider(c, 'clue' + (i + 1)));
+    return best;
+  }
+
+  // 1.0 on top of a source, falling linearly to 0 at maxRange, plus Gaussian noise.
+  _scanSignal() {
+    const { dist, kind } = this._nearestSource();
+    const clean = Math.max(0, 1 - dist / this.signalCfg.maxRange);
+    const noisy = clean + this._gaussian() * this.signalCfg.noiseStd;
+    const strength = Math.min(1, Math.max(0, noisy));
+    return { strength: Math.round(strength * 1000) / 1000, trueDist: dist, kind };
+  }
+
+  /* ---------- public API ---------- */
+  // action: 'scan' | { type: 'scan' } | { type: 'move', direction: 'N'|'S'|'E'|'W' } | { type: 'move', dx, dy }
+  executeAction(action) {
+    const a = typeof action === 'string' ? { type: action } : (action || {});
+    const type = String(a.type || '').toLowerCase();
+    const debug = {};
+
+    if (type !== 'move' && type !== 'scan' && type !== 'recharge')
+      return this._observe(null, false, `Unknown action "${a.type}"`, debug);
+
+    // recharge: only on the base tile; restores the battery to full for one step.
+    if (type === 'recharge') {
+      if (this.agent.x !== this.base.x || this.agent.y !== this.base.y)
+        return this._observe(null, false, 'Recharge only works on the base tile', debug);
+      const gained = this.maxBattery - this.battery;
+      this.battery = this.maxBattery;
+      this.step++;
+      return this._observe(null, true, `Recharged +${gained} (battery full)`, debug);
+    }
+
+    const cost = this.costs[type];
+    if (this.battery + cost < 0)
+      return this._observe(null, false, `Insufficient battery for ${type} (need ${-cost}, have ${this.battery})`, debug);
+
+    if (type === 'move') {
+      let dx, dy;
+      if (a.direction && SimulationEnvironment.DIRS[String(a.direction).toUpperCase()]) {
+        [dx, dy] = SimulationEnvironment.DIRS[String(a.direction).toUpperCase()];
+      } else if (Number.isInteger(a.dx) && Number.isInteger(a.dy) && Math.abs(a.dx) + Math.abs(a.dy) === 1) {
+        dx = a.dx; dy = a.dy;
+      } else {
+        return this._observe(null, false, 'Move needs a direction (N/S/E/W) or a unit dx/dy', debug);
+      }
+      const nx = this.agent.x + dx, ny = this.agent.y + dy;
+      if (!this.inBounds(nx, ny)) return this._observe(null, false, `Blocked: (${nx},${ny}) is outside the grid`, debug);
+      if (this.isBlocked(nx, ny)) return this._observe(null, false, `Blocked: obstacle at (${nx},${ny})`, debug);
+
+      this.agent.x = nx; this.agent.y = ny;
+      this.battery += cost;
+      this.step++;
+      this.visited.add(this._key(nx, ny));
+      const clueIndex = this._clues.findIndex((c, i) => c.x === nx && c.y === ny && !this._foundClues.has(i));
+      if (clueIndex >= 0) {
+        this._foundClues.add(clueIndex);
+        debug.clueFound = true;
+      }
+      return this._observe(null, true, `Moved to (${nx},${ny})`, debug);
+    }
+
+    // scan
+    this.battery += cost;
+    this.step++;
+    const s = this._scanSignal();
+    this.lastSignal = s.strength;
+    debug.trueDistance = s.trueDist;
+    debug.nearestSource = s.kind;
+    return this._observe(s.strength, true, 'Scan complete', debug);
+  }
+
+  // Agent-facing observation block. `debug` is kept separate so it can't leak by accident.
+  _observe(signalStrength, ok, note, debug) {
+    return {
+      coords: { x: this.agent.x, y: this.agent.y },
+      battery: this.battery,
+      timeRemaining: Math.max(0, this.timeBudget - this.step),
+      signalStrength,           // null unless the action was a successful scan
+      ok, note, step: this.step,
+      found: this.agent.x === this._eve.x && this.agent.y === this._eve.y,  // true only while standing on EVE
+      clueFound: Boolean(debug.clueFound),
+      cluesFound: this._foundClues.size,
+      _debug: debug              // for the UI trace only; the agent must not read this
+    };
+  }
+
+  // Debug-only accessors for rendering.
+  get debugEve() { return { ...this._eve }; }
+  get debugClues() { return this._clues.map(c => ({ ...c })); }
+}
+/* CLASS END */
+
+/* ============================================================
+   4b. AUTONOMOUS AGENT
+   Knows only: grid size, base tile, sensor model, battery spec and
+   what executeAction() has reported. It never touches the
+   environment's hidden state (target / clue positions).
+   ============================================================ */
+/* AGENT START */
+class AutonomousAgent {
+  static MOVES = { N: [0, -1], S: [0, 1], E: [1, 0], W: [-1, 0] };
+
+  constructor(cfg) {
+    this.w = cfg.grid.width;
+    this.h = cfg.grid.height;
+    this.base = { ...cfg.base };
+    this.moveCost = Math.abs(cfg.costs.move);   // positive magnitudes
+    this.scanCost = Math.abs(cfg.costs.scan);
+    this.maxBattery = cfg.battery.max;
+    this.reserve = cfg.battery.returnReserve;
+    this.sensor = { maxRange: cfg.signal.maxRange, noiseStd: cfg.signal.noiseStd };
+    this.params = { ...AGENT_DEFAULTS, ...(cfg.agent || {}) };
+
+    const n = this.w * this.h;
+    this.belief = new Float64Array(n).fill(1 / n);  // Belief Map: P(EVE is on this tile), uniform at start
+    this.known = new Uint8Array(n);                 // 0 = unknown, 1 = walked (safe), 2 = obstacle
+    this.known[this._i(this.base.x, this.base.y)] = 1;
+    this.outOfRange = new Uint8Array(n);            // candidate tiles a full battery cannot round-trip to
+
+    this.pos = { ...this.base };
+    this.battery = this.maxBattery;
+    this.mode = 'EXPLORING';
+    this.status = 'RUNNING';       // RUNNING | FOUND | STRANDED | EXHAUSTED | DEPLETED | TIMEOUT
+    this.haltReason = '';
+    this.returning = false;        // latched once battery goes critical, cleared by a recharge
+    this.target = null;
+    this.path = [];
+    this.lastAction = null;        // set by the caller before executeAction()
+    this.hasScanned = false;
+    this.movesSinceScan = 0;
+    this.startEliminated = false;
+    this.stepCount = 0;
+    this.recharges = 0;
+    this.cluesDiscovered = 0;
+    this.pendingNotes = [];
+    this.initialSignal = cfg.initialSignal || null;
+    if (this.initialSignal) {
+      this._applyScan(this.initialSignal.origin, this.initialSignal.strength, this.initialSignal.direction || null);
+      this.hasScanned = true;
+      this.pendingNotes.push('Initial signal prior applied from (' + this.initialSignal.origin.x + ',' + this.initialSignal.origin.y + ') at strength ' + this.initialSignal.strength + '.');
+    }
+  }
+
+  /* ---------- small helpers ---------- */
+  _i(x, y) { return y * this.w + x; }
+  _inBounds(x, y) { return x >= 0 && y >= 0 && x < this.w && y < this.h; }
+  _atBase() { return this.pos.x === this.base.x && this.pos.y === this.base.y; }
+  _eliminate(x, y) { this.belief[this._i(x, y)] = 0; }
+  _normalize() {
+    let s = 0;
+    for (let i = 0; i < this.belief.length; i++) s += this.belief[i];
+    if (s > 1e-12) { for (let i = 0; i < this.belief.length; i++) this.belief[i] /= s; return true; }
+    this.belief.fill(0);
+    return false;
+  }
+  static dirOf(from, to) {
+    const dx = to.x - from.x, dy = to.y - from.y;
+    return Object.keys(AutonomousAgent.MOVES).find(k => AutonomousAgent.MOVES[k][0] === dx && AutonomousAgent.MOVES[k][1] === dy);
+  }
+  peak() {
+    let best = -1, bi = 0;
+    for (let i = 0; i < this.belief.length; i++) if (this.belief[i] > best) { best = this.belief[i]; bi = i; }
+    return { x: bi % this.w, y: Math.floor(bi / this.w), p: best };
+  }
+
+  // Shortest path (list of tiles after `from`, ending at `to`); [] if already there; null if unreachable.
+  _bfs(from, to, passable) {
+    if (from.x === to.x && from.y === to.y) return [];
+    const prev = new Map([[this._i(from.x, from.y), null]]);
+    const queue = [from];
+    for (let qi = 0; qi < queue.length; qi++) {
+      const c = queue[qi];
+      for (const [dx, dy] of Object.values(AutonomousAgent.MOVES)) {
+        const nx = c.x + dx, ny = c.y + dy;
+        if (!this._inBounds(nx, ny)) continue;
+        const k = this._i(nx, ny);
+        if (prev.has(k) || !passable(nx, ny)) continue;
+        prev.set(k, c);
+        if (nx === to.x && ny === to.y) {
+          const path = [{ x: nx, y: ny }];
+          for (let p = c; p && !(p.x === from.x && p.y === from.y); p = prev.get(this._i(p.x, p.y))) path.unshift({ x: p.x, y: p.y });
+          return path;
+        }
+        queue.push({ x: nx, y: ny });
+      }
+    }
+    return null;
+  }
+
+  /* ---------- battery safety ---------- */
+  // Walk-home cost along tiles the agent has actually stepped on (guaranteed obstacle-free).
+  // `margin` covers the worst single next action: a move away (cost + one extra step home) or a scan.
+  returnPlan() {
+    const path = this._bfs(this.pos, this.base, (x, y) => this.known[this._i(x, y)] === 1);
+    const steps = path ? path.length : Infinity;
+    const margin = Math.max(2 * this.moveCost, this.scanCost);
+    return { path, steps, margin, needed: steps * this.moveCost + this.reserve + margin };
+  }
+
+  /* ---------- belief update ---------- */
+  // Likelihood weight per tile for a reading `s` taken at `p`:
+  //  - estimated source distance  d̂ = (1 − s) · maxRange   (signal falls off linearly with distance)
+  //  - tiles near distance d̂ from the scan point are multiplied UP (strong reading => tiles close by)
+  //  - tiles well inside d̂ are multiplied DOWN (a weak reading rules out the neighbourhood)
+  //  - tiles beyond d̂ get a neutral floor weight: the nearest source might be a clue rather than EVE
+  _applyScan(p, s, direction = null) {
+    const { maxRange, noiseStd } = this.sensor;
+    const bearing = direction ? AutonomousAgent.MOVES[String(direction).toUpperCase()] : null;
+    const { farFloor, strongThreshold, weakThreshold } = this.params;
+    const dHat = (1 - s) * maxRange;
+    const tau = Math.max(1, 2 * noiseStd * maxRange);
+    let up = 0, down = 0;
+    for (let y = 0; y < this.h; y++) {
+      for (let x = 0; x < this.w; x++) {
+        const i = this._i(x, y);
+        if (this.belief[i] === 0) continue;
+        const d = Math.abs(x - p.x) + Math.abs(y - p.y);
+        let L;
+        if (s <= 0.02) L = d >= maxRange ? 1 : 0.1;                         // nothing within range at all
+        else if (d <= dHat + tau) L = Math.max(0.02, Math.exp(-((d - dHat) ** 2) / (2 * tau * tau)));
+        else L = farFloor;
+        if (bearing && (x - p.x) * bearing[0] + (y - p.y) * bearing[1] < 0) L *= 0.35;
+        this.belief[i] *= L;
+        const neutral = s <= 0.02 ? 1 : farFloor;
+        if (L > neutral + 1e-9) up++; else if (L < neutral - 1e-9) down++;
+      }
+    }
+    this._normalize();
+    const label = s >= strongThreshold ? 'STRONG' : s <= weakThreshold ? 'WEAK' : 'MODERATE';
+    return { s, dHat, tau, up, down, label };
+  }
+
+  // Called with the observation block after every action.
+  receiveObservation(obs) {
+    const act = this.lastAction || {};
+    const notes = [];
+    const finishIfDepleted = result => {
+      if (this.status === 'RUNNING' && this.battery <= 0) {
+        this.status = 'DEPLETED';
+        this.mode = 'DEPLETED';
+        this.haltReason = 'Battery reached 0; the mission has been halted.';
+        notes.push(this.haltReason);
+      }
+      if (this.status === 'RUNNING' && obs.timeRemaining <= 0) {
+        this.status = 'TIMEOUT';
+        this.mode = 'TIMEOUT';
+        this.haltReason = 'Mission time budget exhausted; the search has been halted.';
+        notes.push(this.haltReason);
+      }
+      return result;
+    };
+    this.battery = obs.battery;
+
+    if (!obs.ok) {
+      if (act.type === 'move' && /obstacle/i.test(obs.note) && AutonomousAgent.MOVES[act.direction]) {
+        const [dx, dy] = AutonomousAgent.MOVES[act.direction];
+        const bx = this.pos.x + dx, by = this.pos.y + dy;
+        this.known[this._i(bx, by)] = 2;
+        this._eliminate(bx, by);
+        this._normalize();
+        if (this.target && this.target.x === bx && this.target.y === by) this.target = null;
+        this.path = [];
+        notes.push(`Bumped into an obstacle at (${bx},${by}): marked impassable, its probability set to 0, route will be re-planned.`);
+      } else if (/insufficient/i.test(obs.note)) {
+        this.status = 'STRANDED';
+        this.haltReason = obs.note;
+        notes.push(obs.note);
+      } else {
+        notes.push('Action rejected: ' + obs.note);
+      }
+      return finishIfDepleted({ notes });
+    }
+
+    this.pos = { x: obs.coords.x, y: obs.coords.y };
+    if (obs.found) {
+      this.status = 'FOUND';
+      this.mode = 'FOUND';
+      this.belief.fill(0);
+      this.belief[this._i(this.pos.x, this.pos.y)] = 1;
+      notes.push('EVE detected on this tile! Belief collapsed to 100% here.');
+    }
+
+    if (act.type === 'move') {
+      this.known[this._i(this.pos.x, this.pos.y)] = 1;
+      this.movesSinceScan++;
+      if (obs.clueFound) {
+        this.cluesDiscovered = Number.isInteger(obs.cluesFound) ? obs.cluesFound : this.cluesDiscovered + 1;
+        notes.push('Clue discovered at (' + this.pos.x + ',' + this.pos.y + ').');
+      }
+      if (!obs.found && this.belief[this._i(this.pos.x, this.pos.y)] > 0) {
+        this._eliminate(this.pos.x, this.pos.y);
+        this._normalize();
+        notes.push(`EVE is not at (${this.pos.x},${this.pos.y}): tile eliminated, remaining probability renormalised.`);
+      }
+    } else if (act.type === 'scan') {
+      const r = this._applyScan(this.pos, obs.signalStrength);
+      this.hasScanned = true;
+      this.movesSinceScan = 0;
+      notes.push(`${r.label} signal → nearest source ≈ ${r.dHat.toFixed(1)} tiles away. ${r.up} tiles weighted up, ${r.down} weighted down.`);
+      return finishIfDepleted({ notes, scan: r });
+    } else if (act.type === 'recharge') {
+      this.recharges++;
+      this.returning = false;
+      this.mode = 'EXPLORING';
+      notes.push(`Battery restored to ${obs.battery}. Belief map and learned obstacles are kept.`);
+    }
+    return finishIfDepleted({ notes });
+  }
+
+  /* ---------- decision making ---------- */
+  // Could a FULL battery cover base -> tile -> base? Outbound legs also pay for periodic scans.
+  _feasibleFromBase(t) {
+    const out = this._bfs(this.base, t, (x, y) => this.known[this._i(x, y)] !== 2);
+    if (!out) return false;
+    const outPerStep = this.moveCost + this.scanCost / this.params.scanEvery;
+    const need = out.length * (outPerStep + this.moveCost) + this.reserve + Math.max(2 * this.moveCost, this.scanCost);
+    return need <= this.maxBattery;
+  }
+
+  // Highest-probability tile (ignoring out-of-range ones); ties go to the nearest. Keeps the current target while it is still a maximum.
+  _chooseTarget() {
+    let max = 0;
+    for (let i = 0; i < this.belief.length; i++) if (!this.outOfRange[i] && this.belief[i] > max) max = this.belief[i];
+    if (max <= 0) return null;
+    const cutoff = max * (1 - 1e-9);
+    let ties = 0, best = null;
+    for (let i = 0; i < this.belief.length; i++) {
+      if (this.outOfRange[i] || this.belief[i] < cutoff) continue;
+      ties++;
+      const x = i % this.w, y = Math.floor(i / this.w);
+      const d = Math.abs(x - this.pos.x) + Math.abs(y - this.pos.y);
+      if (!best || d < best.d) best = { x, y, d };
+    }
+    // Commitment: don't dither between near-equal tiles after every scan.
+    if (this.target) {
+      const ti = this._i(this.target.x, this.target.y);
+      if (!this.outOfRange[ti] && this.belief[ti] > 0 && this.belief[ti] >= max * this.params.commitRatio)
+        return { x: this.target.x, y: this.target.y, p: this.belief[ti], ties, kept: true, bestP: max };
+    }
+    return { x: best.x, y: best.y, p: max, ties, kept: false };
+  }
+
+  halt(status, reason) {
+    this.status = status; this.haltReason = reason;
+    return { terminal: true, reasoning: reason, mode: this.mode, notes: this.pendingNotes.splice(0) };
+  }
+
+  decide() {
+    if (this.status !== 'RUNNING') return { terminal: true, reasoning: this.haltReason, mode: this.mode, notes: [] };
+
+    if (!this.startEliminated) {
+      this._eliminate(this.base.x, this.base.y);
+      this._normalize();
+      this.startEliminated = true;
+      this.pendingNotes.push(`Start tile (${this.base.x},${this.base.y}) is not EVE; the other ${this.w * this.h - 1} tiles share the probability equally.`);
+    }
+
+    const plan = this.returnPlan();
+    const need = `${plan.steps} step(s) home × ${this.moveCost} + reserve ${this.reserve} + safety margin ${plan.margin} = ${plan.needed}`;
+    const critical = !plan.path || this.battery < plan.needed;
+
+    /* ---- priority 1: battery ---- */
+    if (critical || this.returning) {
+      this.returning = true;
+      if (!plan.path) return this.halt('STRANDED', 'No known safe route back to base.');
+      if (this._atBase()) {
+        if (this.battery >= this.maxBattery)
+          return this.halt('STRANDED', `Battery is already full (${this.battery}) but the safety requirement is ${plan.needed}. This battery cannot sustain any exploration.`);
+        this.mode = 'RECHARGING: AT BASE';
+        return { action: { type: 'recharge' }, mode: this.mode, notes: this.pendingNotes.splice(0),
+          reasoning: `I am back on the base tile with ${this.battery}/${this.maxBattery} battery. Recharging to full before resuming the search.` };
+      }
+      this.mode = 'RECHARGING: RETURNING TO BASE';
+      this.target = null;
+      this.path = plan.path;
+      const dir = AutonomousAgent.dirOf(this.pos, plan.path[0]);
+      return { action: { type: 'move', direction: dir }, mode: this.mode, notes: this.pendingNotes.splice(0),
+        reasoning: critical
+          ? `Battery ${this.battery} is below the ${plan.needed} I need to be safe (${need}). Priority switches to "Recharging: Returning to Base" — retracing my own trail, ${plan.steps} step(s) to go.`
+          : `Still returning to base to recharge: ${plan.steps} step(s) left along tiles I have already walked.` };
+    }
+
+    /* ---- priority 2: find EVE ---- */
+    this.mode = 'EXPLORING';
+    const spare = this.battery - plan.needed;
+
+    if (!this.hasScanned || this.movesSinceScan >= this.params.scanEvery) {
+      const alive = Array.from(this.belief).filter(v => v > 0);
+      const why = !this.hasScanned
+        ? `I have no sensor reading yet, so every remaining tile is equally likely (≈${(100 * (alive[0] || 0)).toFixed(2)}% each).`
+        : `${this.movesSinceScan} move(s) since my last reading (interval ${this.params.scanEvery}); my belief map needs fresh evidence.`;
+      return { action: { type: 'scan' }, mode: this.mode, notes: this.pendingNotes.splice(0),
+        reasoning: `${why} A scan costs ${this.scanCost} battery; ${spare} spare above the ${plan.needed} needed to get home, so it is affordable.` };
+    }
+
+    let choice = null, route = null;
+    for (let guard = this.belief.length; guard > 0; guard--) {
+      choice = this._chooseTarget();
+      if (!choice) {
+        const leftover = this.belief.some(v => v > 0);
+        return this.halt('EXHAUSTED', leftover
+          ? 'All remaining candidate tiles lie beyond the battery\'s round-trip range; EVE cannot be reached safely.'
+          : 'Every tile has been ruled out and EVE was not found.');
+      }
+      route = this._bfs(this.pos, choice, (x, y) => this.known[this._i(x, y)] !== 2);
+      if (!route || !route.length) {
+        this._eliminate(choice.x, choice.y);    // walled off by known obstacles
+        this._normalize();
+        this.pendingNotes.push(`Tile (${choice.x},${choice.y}) is unreachable given known obstacles; eliminated.`);
+        this.target = null; route = null; continue;
+      }
+      if (!this._feasibleFromBase(choice)) {
+        this.outOfRange[this._i(choice.x, choice.y)] = 1;
+        this.pendingNotes.push(`Tile (${choice.x},${choice.y}) is too far for a full-battery round trip; skipping it as a target.`);
+        this.target = null; route = null; continue;
+      }
+      break;
+    }
+    if (!route) return this.halt('EXHAUSTED', 'No reachable tile with non-zero probability remains.');
+
+    this.target = { x: choice.x, y: choice.y };
+    this.path = route;
+    const dir = AutonomousAgent.dirOf(this.pos, route[0]);
+    const ratio = choice.p * this.w * this.h;
+    const tieNote = choice.ties > 1 ? ` It is tied with ${choice.ties - 1} other tile(s), so I chose the nearest.` : '';
+    return { action: { type: 'move', direction: dir }, mode: this.mode, notes: this.pendingNotes.splice(0),
+      reasoning: (choice.kept && choice.p < choice.bestP * (1 - 1e-9)
+          ? `Staying committed to (${choice.x},${choice.y}) at ${(choice.p * 100).toFixed(2)}%: it is still within ${Math.round(this.params.commitRatio * 100)}% of the best tile (${(choice.bestP * 100).toFixed(2)}%), so switching would waste steps.`
+          : `${choice.kept ? 'Still heading for' : 'New target:'} (${choice.x},${choice.y}), the highest-probability tile at ${(choice.p * 100).toFixed(2)}% (${ratio.toFixed(1)}× a uniform guess).${tieNote}`) + ' ' +
+                 `Path is ${route.length} step(s) and battery ${this.battery} leaves ${spare} spare above the ${plan.needed} needed to get home, so exploring is still safe.` };
+  }
+}
+/* AGENT END */
+
+/* ============================================================
+   5. ENVIRONMENT LIFECYCLE + ACTION DISPATCH
+   ============================================================ */
+let config = null;
+let env = null;
+let agent = null;
+let running = false;
+let runTimer = null;
+let finalReportShown = false;
+let terminalLogged = false;
+let missionTrace = [];
+
+function loadConfigFromText(text) {
+  const errBox = document.getElementById('configError');
+  let parsed;
+  try { parsed = JSON.parse(text); }
+  catch (e) { errBox.textContent = 'Invalid JSON: ' + e.message; log('ERROR', 'Config rejected: invalid JSON'); return false; }
+
+  const errs = validateConfig(parsed);
+  if (errs.length) { errBox.textContent = errs.join(' | '); log('ERROR', 'Config rejected: ' + errs.join('; ')); return false; }
+
+  errBox.textContent = '';
+  config = parsed;
+  finalReportShown = false;
+  terminalLogged = false;
+  missionTrace = [];
+  document.getElementById('reportOverlay').classList.add('hidden');
+  stopRun();
+  env = new SimulationEnvironment(config);
+  agent = new AutonomousAgent(config);
+  missionTrace.push({ type: 'mission_start', config: JSON.parse(JSON.stringify(config)), initialBeliefPeak: agent.peak() });
+  log('INFO', `Config loaded. Seed=${config.seed}, grid=${env.w}x${env.h}, battery=${env.maxBattery}, ` +
+              `costs(move=${env.costs.move}, scan=${env.costs.scan}).`);
+  log('INFO', `World generated. Base at (${env.base.x},${env.base.y}). 1 target and ${env.debugClues.length} clues hidden.`);
+  log('INFO', `Agent ready. Belief map: ${env.w * env.h} tiles, each p=${(100 / (env.w * env.h)).toFixed(3)}%. ` +
+              `Decision interval ${agent.params.tickMs} ms. Press Run or Step.`);
+  if (config.initialSignal) log('INFO', 'Initial signal prior: strength ' + config.initialSignal.strength + ', origin (' + config.initialSignal.origin.x + ',' + config.initialSignal.origin.y + '), direction ' + (config.initialSignal.direction || 'unknown') + '.');
+  log('INFO', 'Mission time budget: ' + env.timeBudget + ' successful actions.');
+  resizeCanvasToGrid();
+  updateHud();
+  return true;
+}
+
+const DIR_INFO = { N: ['NORTH', '▲'], S: ['SOUTH', '▼'], E: ['EAST', '▶'], W: ['WEST', '◀'] };
+function describeAction(a) {
+  if (a.type === 'move') { const [n, g] = DIR_INFO[a.direction] || ['?', '?']; return `MOVE ${g} ${n}`; }
+  if (a.type === 'scan') return 'SCAN ◉';
+  if (a.type === 'recharge') return 'RECHARGE ⚡';
+  return String(a.type).toUpperCase();
+}
+
+// Single entry point for manual input AND the agent: executes the action, then hands the
+// observation to the agent. opts.quiet skips the plain ACTION/OBS lines (the agent logs one card per step).
+function perform(action, opts = {}) {
+  if (!env || !agent || agent.status !== 'RUNNING') return null;
+  const act = typeof action === 'string' ? { type: action } : action;
+  agent.lastAction = act;
+  const obs = env.executeAction(act);
+  const update = agent.receiveObservation(obs);
+  const decision = opts.decision || {};
+  const peakAfterAction = agent.peak();
+  missionTrace.push({
+    step: obs.step,
+    action: Object.assign({}, act),
+    decision: { mode: decision.mode || 'MANUAL', reasoning: decision.reasoning || 'Manual input', notes: decision.notes || [] },
+    observation: {
+      coords: { x: obs.coords.x, y: obs.coords.y },
+      battery: obs.battery, timeRemaining: obs.timeRemaining,
+      signalStrength: obs.signalStrength, ok: obs.ok, note: obs.note,
+      clueFound: obs.clueFound, cluesFound: obs.cluesFound
+    },
+    beliefPeak: { x: peakAfterAction.x, y: peakAfterAction.y, probability: peakAfterAction.p }
+  });  if (!opts.quiet) {
+    log('ACTION', `Manual: ${describeAction(act)}`);
+    if (!obs.ok) log('ERROR', obs.note);
+    else log('OBS', `${obs.note} | coords=(${obs.coords.x},${obs.coords.y}) battery=${obs.battery} ` +
+                    `signalStrength=${obs.signalStrength === null ? 'n/a' : obs.signalStrength}`);
+    update.notes.forEach(n => log('BELIEF', n));
+  }
+  if (obs.ok && obs._debug.nearestSource && document.getElementById('chkDebug').checked)
+    log('INFO', `[debug] nearest source=${obs._debug.nearestSource}, true distance=${obs._debug.trueDistance}`);
+  updateHud();
+  if (agent.status !== 'RUNNING' && !opts.deferFinish) finishMission();
+  return { obs, update };
+}
+
+/* ---------- formatted step card for the right-hand trace log ---------- */
+function logHtml(type, html) {
+  const el = document.createElement('div');
+  el.className = `log-line log-${type} rounded-r bg-slate-950/70 p-2 my-1.5`;
+  el.innerHTML = html;
+  logEl.appendChild(el);
+  logEl.scrollTop = logEl.scrollHeight;
+}
+
+const MODE_STYLE = {
+  'EXPLORING':                    { border: 'ACTION', badge: 'bg-sky-900 text-sky-300',         hud: 'text-sky-300' },
+  'RECHARGING: RETURNING TO BASE': { border: 'REASON', badge: 'bg-orange-900 text-orange-300',   hud: 'text-orange-300' },
+  'RECHARGING: AT BASE':          { border: 'OBS',    badge: 'bg-emerald-900 text-emerald-300', hud: 'text-emerald-300' },
+  'FOUND':                        { border: 'OBS',    badge: 'bg-emerald-900 text-emerald-300', hud: 'text-emerald-300' }
+};
+
+function logStepCard(d, res, batteryBefore) {
+  const { obs, update } = res;
+  const st = MODE_STYLE[d.mode] || MODE_STYLE.EXPLORING;
+  const act = d.action;
+
+  let actionText = describeAction(act);
+  if (act.type === 'move') actionText += obs.ok ? ` → (${obs.coords.x},${obs.coords.y})` : ' → BLOCKED';
+  if (act.type === 'recharge') actionText += obs.ok ? ' → battery full' : ' → FAILED';
+
+  const delta = obs.battery - batteryBefore;
+  const pct = Math.max(0, (obs.battery / env.maxBattery) * 100);
+  const barColor = pct > 50 ? 'bg-emerald-400' : pct > 20 ? 'bg-amber-400' : 'bg-red-500';
+  const deltaText = delta === 0 ? '±0' : (delta > 0 ? '+' + delta : String(delta));
+
+  const clue = (obs.signalStrength !== null && update.scan)
+    ? `<span class="text-emerald-300 font-semibold">${obs.signalStrength.toFixed(3)}</span> · ${update.scan.label.toLowerCase()} · source ≈ ${update.scan.dHat.toFixed(1)} tiles away`
+    : '<span class="text-slate-500">no scan this step</span>';
+
+  const pk = agent.peak();
+  const beliefLines = [...(d.notes || []), ...update.notes].map(escapeHtml);
+  beliefLines.push(`Peak belief: (${pk.x},${pk.y}) at ${(pk.p * 100).toFixed(2)}%`);
+
+  const row = (label, html) => `<div class="text-[10px] uppercase tracking-wide text-slate-500 pt-0.5">${label}</div><div>${html}</div>`;
+  logHtml(obs.ok ? st.border : 'ERROR', `
+    <div class="flex items-center justify-between">
+      <span class="font-bold text-amber-300">STEP ${String(agent.stepCount).padStart(3, '0')}</span>
+      <span class="text-[10px] px-1.5 py-0.5 rounded ${st.badge}">${escapeHtml(d.mode)}</span>
+    </div>
+    <div class="grid gap-x-2 gap-y-1 mt-1.5" style="grid-template-columns: 74px 1fr;">
+      ${row('Action', `<span class="text-yellow-300 font-semibold">${escapeHtml(actionText)}</span>`)}
+      ${row('Clue data', clue)}
+      ${row('Battery', `${obs.battery} / ${env.maxBattery} <span class="text-slate-500">(${deltaText})</span>
+        <span class="inline-block w-16 h-1.5 bg-slate-800 rounded align-middle ml-1"><span class="block h-full rounded ${barColor}" style="width:${pct}%"></span></span>`)}
+      ${row('Belief', `<span class="text-fuchsia-300">${beliefLines.join('<br>')}</span>`)}
+      ${row('Reasoning', `<span class="text-orange-200 italic">“${escapeHtml(d.reasoning)}”</span>`)}
+    </div>`);
+}
+
+function logTerminal() {
+  if (agent.status === 'FOUND') {
+    logHtml('OBS', `<div class="font-bold text-emerald-300">★ MISSION COMPLETE</div>
+      <div>EVE located at (${agent.pos.x},${agent.pos.y}) after ${agent.stepCount} actions. Battery ${agent.battery}/${env.maxBattery}, ${agent.recharges} recharge(s).</div>`);
+  } else {
+    logHtml('ERROR', `<div class="font-bold">■ MISSION HALTED — ${escapeHtml(agent.status)}</div><div>${escapeHtml(agent.haltReason)}</div>`);
+  }
+}
+
+function showFinalReport() {
+  const succeeded = agent.status === 'FOUND';
+  const peak = agent.peak();
+  const confidence = succeeded ? 100 : Math.max(0, peak.p * 100);
+  const bestCoords = '(' + peak.x + ', ' + peak.y + ')';
+  const exactCoords = '(' + agent.pos.x + ', ' + agent.pos.y + ')';
+  const estimate = peak.p > 0 ? bestCoords : 'No viable candidate remains';
+  const statusEl = document.getElementById('reportStatus');
+  statusEl.textContent = succeeded ? 'Mission successful' : 'Mission ended';
+  statusEl.className = 'text-xs font-bold uppercase tracking-[0.2em] ' + (succeeded ? 'text-emerald-300' : 'text-amber-300');
+  document.getElementById('reportSummary').textContent = succeeded
+    ? "WALL-E confirmed EVE's exact hidden tile after " + env.step + ' actions.'
+    : agent.haltReason || 'The search ended before EVE was located.';
+  document.getElementById('reportClues').textContent = agent.cluesDiscovered + ' / ' + env.debugClues.length;
+  document.getElementById('reportCoords').textContent = succeeded ? exactCoords + ' (confirmed)' : estimate + (peak.p > 0 ? ' (best estimate)' : '');
+  document.getElementById('reportConfidence').textContent = confidence.toFixed(1) + '%';
+  let recommendation;
+  if (succeeded && agent.battery > 0) {
+    recommendation = 'EVE is confirmed at ' + exactCoords + '. Record the location and use the remaining battery to follow a safe route back to base.';
+  } else if (succeeded) {
+    recommendation = 'EVE is confirmed at ' + exactCoords + ', but WALL-E has no battery remaining. Dispatch a recovery unit to the confirmed location.';
+  } else if (agent.status === 'TIMEOUT') {
+    recommendation = 'The mission clock expired after ' + env.step + ' actions. Recover WALL-E, review the exported trace for low-value scans or detours, then rerun with a better route and a realistic time budget. Best remaining lead: ' + estimate + '.';
+  } else if (agent.status === 'DEPLETED') {    recommendation = 'Recover or recharge WALL-E at ' + exactCoords + ', then resume the search from the strongest surviving belief estimate: ' + estimate + '.';
+  } else if (agent.status === 'STRANDED') {
+    recommendation = 'Send support to WALL-E at ' + exactCoords + '. Recover the robot, then continue from the latest evidence and best remaining estimate: ' + estimate + '.';
+  } else {
+    recommendation = 'Recharge WALL-E and resume from the strongest remaining lead: ' + estimate + '. Keep a safe return reserve while checking high-belief tiles.';
+  }
+  document.getElementById('reportNextStep').textContent = recommendation;
+  document.getElementById('reportOverlay').classList.remove('hidden');
+  document.getElementById('btnReportClose').focus();
+}
+function exportMissionJSON() {
+  if (!env || !agent) return;
+  const peak = agent.peak();
+  const coordinates = agent.status === 'FOUND' ? { x: agent.pos.x, y: agent.pos.y } : { x: peak.x, y: peak.y };
+  const report = {
+    status: agent.status,
+    reason: agent.haltReason,
+    actions: env.step,
+    timeBudget: env.timeBudget,
+    batteryRemaining: agent.battery,
+    cluesDiscovered: agent.cluesDiscovered,
+    cluesAvailable: env.debugClues.length,
+    inferredCoordinates: coordinates,
+    confidencePercent: Number(document.getElementById('reportConfidence').textContent.replace('%', '')),
+    recommendedNextStep: document.getElementById('reportNextStep').textContent
+  };
+  const payload = { exportedAt: new Date().toISOString(), config: config, report: report, trace: missionTrace };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = 'walle-eve-seed-' + config.seed + '-mission-report.json';
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+  log('INFO', 'Mission report and action trace downloaded as JSON.');
+}
+function closeFinalReport() {  document.getElementById('reportOverlay').classList.add('hidden');
+}
+function finishMission() {
+  if (!agent || agent.status === 'RUNNING') return;
+  stopRun();
+  if (!terminalLogged) {
+    logTerminal();
+    terminalLogged = true;
+  }
+  if (!finalReportShown) {
+    showFinalReport();
+    finalReportShown = true;
+  }
+  updateHud();
+}/* ---------- autonomous loop ---------- */
+function agentTick() {
+  if (!env || !agent) return;
+  if (agent.status !== 'RUNNING') { stopRun(); return; }
+  const d = agent.decide();
+  if (d.terminal) { finishMission(); return; }
+  const before = agent.battery;
+  agent.stepCount++;
+  const res = perform(d.action, { quiet: true, deferFinish: true, decision: d });
+  if (!res) return;
+  logStepCard(d, res, before);
+  if (agent.status !== 'RUNNING') finishMission();
+  updateHud();
+}
+
+function scheduleNext() {
+  runTimer = setTimeout(() => { agentTick(); if (running) scheduleNext(); }, agent.params.tickMs);
+}
+function startRun() {
+  if (!env || !agent) return;
+  if (agent.status !== 'RUNNING') { log('INFO', `Mission already finished (${agent.status}). Press Load Config or New Seed to restart.`); return; }
+  running = true;
+  document.getElementById('btnRun').textContent = '⏸ Pause';
+  agentTick();                       // first decision immediately, then every tickMs
+  if (running) scheduleNext();
+}
+function stopRun() {
+  running = false;
+  clearTimeout(runTimer);
+  const b = document.getElementById('btnRun');
+  if (b) b.textContent = '▶ Run';
+}
+
+/* ============================================================
+   6. HUD
+   ============================================================ */
+function updateHud() {
+  if (!env) return;
+  document.getElementById('hudStep').textContent = env.step;
+  document.getElementById('hudTime').textContent = Math.max(0, env.timeBudget - env.step) + ' / ' + env.timeBudget;
+  document.getElementById('hudPos').textContent = `(${env.agent.x}, ${env.agent.y})`;
+  document.getElementById('hudBattery').textContent = `${env.battery} / ${env.maxBattery}`;
+  const pct = Math.max(0, (env.battery / env.maxBattery) * 100);
+  const bar = document.getElementById('batteryBar');
+  bar.style.width = pct + '%';
+  bar.className = 'h-full ' + (pct > 50 ? 'bg-emerald-400' : pct > 20 ? 'bg-amber-400' : 'bg-red-500');
+  document.getElementById('hudSignal').textContent = env.lastSignal === null ? '-' : env.lastSignal.toFixed(3);
+  document.getElementById('signalBar').style.width = ((env.lastSignal || 0) * 100) + '%';
+  if (agent) {
+    const plan = agent.returnPlan();
+    const modeEl = document.getElementById('hudMode');
+    modeEl.textContent = agent.status === 'RUNNING' ? agent.mode : agent.status;
+    modeEl.className = 'font-semibold ' + ((MODE_STYLE[agent.mode] || {}).hud || 'text-slate-300');
+    document.getElementById('hudTarget').textContent = agent.target ? `(${agent.target.x}, ${agent.target.y})` : '-';
+    document.getElementById('hudReturn').textContent = Number.isFinite(plan.steps) ? `${plan.steps} steps · need ${plan.needed}` : '-';
+    document.getElementById('hudRecharges').textContent = agent.recharges;
+    const terminal = agent.status !== 'RUNNING';
+    document.getElementById('btnRun').disabled = terminal;
+    document.getElementById('btnStep').disabled = terminal;
+    document.getElementById('btnScan').disabled = terminal;
+    document.querySelectorAll('[data-dir]').forEach(button => { button.disabled = terminal; });
+  }
+  document.getElementById('status').textContent = `Seed ${config.seed} | ${env.w}x${env.h} grid`;
+}
+
+/* ============================================================
+   7. CANVAS DRAWING LOOP
+   ============================================================ */
+const canvas = document.getElementById('gridCanvas');
+const ctx = canvas.getContext('2d');
+let cellSize = 40;
+
+function resizeCanvasToGrid() {
+  if (!env) return;
+  const maxPx = 640;
+  cellSize = Math.floor(maxPx / Math.max(env.w, env.h));
+  canvas.width = cellSize * env.w;
+  canvas.height = cellSize * env.h;
+}
+
+function drawFrame(now) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  if (!env) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = '16px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText('Load a config to begin', canvas.width / 2, canvas.height / 2);
+    return;
+  }
+  const cs = cellSize;
+  const centre = (v) => v * cs + cs / 2;
+
+  // Cells (+ faint trail on visited tiles)
+  for (let y = 0; y < env.h; y++) {
+    for (let x = 0; x < env.w; x++) {
+      if (env.isBlocked(x, y)) ctx.fillStyle = '#475569';
+      else if (env.visited.has(env._key(x, y))) ctx.fillStyle = '#243247';
+      else ctx.fillStyle = (x + y) % 2 ? '#1e293b' : '#172033';
+      ctx.fillRect(x * cs, y * cs, cs, cs);
+    }
+  }
+
+  // Grid lines
+  ctx.strokeStyle = 'rgba(148,163,184,0.12)';
+  ctx.lineWidth = 1;
+  for (let x = 0; x <= env.w; x++) { ctx.beginPath(); ctx.moveTo(x * cs, 0); ctx.lineTo(x * cs, env.h * cs); ctx.stroke(); }
+  for (let y = 0; y <= env.h; y++) { ctx.beginPath(); ctx.moveTo(0, y * cs); ctx.lineTo(env.w * cs, y * cs); ctx.stroke(); }
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = `bold ${Math.floor(cs * 0.4)}px sans-serif`;
+
+  // Agent belief map (blue-to-orange/red heatmap) + planned route + current target
+  if (agent && document.getElementById('chkHeat').checked) {
+    const uniformProbability = 1 / agent.belief.length;
+    for (let y = 0; y < env.h; y++) {
+      for (let x = 0; x < env.w; x++) {
+        const p = agent.belief[y * env.w + x];
+        if (p <= 0) continue;
+        const ratio = p / uniformProbability;
+        const heat = Math.max(0, Math.min(1, Math.log2(Math.max(1, ratio)) / 4));
+        let r, g, b;
+        if (heat < 0.5) {
+          const t = heat * 2;
+          r = Math.round(59 + (251 - 59) * t);
+          g = Math.round(130 + (146 - 130) * t);
+          b = Math.round(246 + (60 - 246) * t);
+        } else {
+          const t = (heat - 0.5) * 2;
+          r = Math.round(251 + (239 - 251) * t);
+          g = Math.round(146 + (68 - 146) * t);
+          b = Math.round(60 + (68 - 60) * t);
+        }
+        const alpha = 0.12 + 0.75 * heat;
+        ctx.fillStyle = 'rgba(' + r + ',' + g + ',' + b + ',' + alpha.toFixed(3) + ')';
+        ctx.fillRect(x * cs, y * cs, cs, cs);
+      }
+    }    if (agent.path.length) {
+      ctx.strokeStyle = 'rgba(252,211,77,0.75)';
+      ctx.lineWidth = 2;
+      ctx.setLineDash([4, 4]);
+      ctx.beginPath();
+      ctx.moveTo(centre(agent.pos.x), centre(agent.pos.y));
+      for (const t of agent.path) ctx.lineTo(centre(t.x), centre(t.y));
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+    if (agent.target) {
+      ctx.strokeStyle = '#f0abfc';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.arc(centre(agent.target.x), centre(agent.target.y), cs * 0.4, 0, Math.PI * 2);
+      ctx.stroke();
+    }
+  }
+
+  // Base
+  ctx.fillStyle = '#38bdf8';
+  ctx.fillRect(env.base.x * cs + cs * 0.15, env.base.y * cs + cs * 0.15, cs * 0.7, cs * 0.7);
+  ctx.fillStyle = '#0f172a';
+  ctx.fillText('B', centre(env.base.x), centre(env.base.y));
+
+  // Debug overlay: clues and EVE
+  if (document.getElementById('chkDebug').checked) {
+    for (const c of env.debugClues) {
+      const cx = centre(c.x), cy = centre(c.y), r = cs * 0.28;
+      ctx.fillStyle = '#a78bfa';
+      ctx.beginPath(); ctx.moveTo(cx, cy - r); ctx.lineTo(cx + r, cy); ctx.lineTo(cx, cy + r); ctx.lineTo(cx - r, cy); ctx.closePath(); ctx.fill();
+    }
+    const e = env.debugEve;
+    ctx.fillStyle = '#f472b6';
+    ctx.beginPath(); ctx.arc(centre(e.x), centre(e.y), cs * 0.3, 0, Math.PI * 2); ctx.fill();
+    ctx.fillStyle = '#0f172a';
+    ctx.fillText('E', centre(e.x), centre(e.y));
+  }
+
+  // WALL-E's current tile: pulsing highlight + outline, then the robot marker
+  const pulse = 0.5 + 0.5 * Math.sin((now || 0) / 300);
+  const tx = env.agent.x * cs, ty = env.agent.y * cs;
+  ctx.fillStyle = `rgba(252,211,77,${0.18 + 0.14 * pulse})`;
+  ctx.fillRect(tx, ty, cs, cs);
+  ctx.strokeStyle = '#fcd34d';
+  ctx.lineWidth = 2;
+  ctx.strokeRect(tx + 1, ty + 1, cs - 2, cs - 2);
+
+  ctx.fillStyle = '#fcd34d';
+  ctx.beginPath(); ctx.arc(centre(env.agent.x), centre(env.agent.y), cs * 0.3, 0, Math.PI * 2); ctx.fill();
+  ctx.fillStyle = '#0f172a';
+  ctx.fillText('W', centre(env.agent.x), centre(env.agent.y));
+}
+
+function loop(now) {
+  drawFrame(now);
+  requestAnimationFrame(loop);
+}
+
+/* ============================================================
+   8. UI WIRING
+   ============================================================ */
+const configInput = document.getElementById('configInput');
+function setConfigText(obj) { configInput.value = JSON.stringify(obj, null, 2); }
+
+document.getElementById('btnLoad').onclick = () => loadConfigFromText(configInput.value);
+document.getElementById('btnDefault').onclick = () => { setConfigText(DEFAULT_CONFIG); loadConfigFromText(configInput.value); };
+document.getElementById('btnClearLog').onclick = () => { logEl.innerHTML = ''; logStep = 0; };
+document.getElementById('btnRandomSeed').onclick = () => {
+  try {
+    const c = JSON.parse(configInput.value);
+    c.seed = Math.floor(Math.random() * 100000);
+    setConfigText(c);
+    loadConfigFromText(configInput.value);
+  } catch (e) { log('ERROR', 'Cannot change seed: config JSON is invalid'); }
+};
+
+document.querySelectorAll('[data-dir]').forEach(btn =>
+  btn.addEventListener('click', () => perform({ type: 'move', direction: btn.dataset.dir })));
+document.getElementById('btnScan').addEventListener('click', () => perform({ type: 'scan' }));
+
+const KEYMAP = { ArrowUp: 'N', w: 'N', ArrowDown: 'S', s: 'S', ArrowLeft: 'W', a: 'W', ArrowRight: 'E', d: 'E' };
+window.addEventListener('keydown', (e) => {
+  const tag = (document.activeElement && document.activeElement.tagName) || '';
+  if (tag === 'TEXTAREA' || tag === 'INPUT') return;
+  const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+  if (KEYMAP[key]) { e.preventDefault(); perform({ type: 'move', direction: KEYMAP[key] }); }
+  else if (e.key === ' ') { e.preventDefault(); perform({ type: 'scan' }); }
+});
+
+document.getElementById('btnRun').onclick = () => (running ? stopRun() : startRun());
+document.getElementById('btnStep').onclick = () => { if (!running) agentTick(); };
+
+document.getElementById('btnReportClose').onclick = closeFinalReport;
+document.getElementById('btnExportReport').onclick = exportMissionJSON;
+document.getElementById('btnReportCloseFooter').onclick = closeFinalReport;
+document.getElementById('reportOverlay').addEventListener('click', event => {
+  if (event.target.id === 'reportOverlay') closeFinalReport();
+});
+window.addEventListener('keydown', event => {
+  if (event.key === 'Escape' && !document.getElementById('reportOverlay').classList.contains('hidden')) closeFinalReport();
+});
+// Boot
+setConfigText(DEFAULT_CONFIG);
+log('INFO', 'WALL-E online. Environment and agent ready.');
+loadConfigFromText(configInput.value);
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>

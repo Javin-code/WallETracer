@@ -1,0 +1,45 @@
+{
+  "seed": 2026,
+  "grid": {
+    "width": 12,
+    "height": 12,
+    "obstacleDensity": 0.08
+  },
+  "base": {
+    "x": 0,
+    "y": 0
+  },
+  "battery": {
+    "max": 100,
+    "returnReserve": 6
+  },
+  "costs": {
+    "move": -1,
+    "scan": -3
+  },
+  "signal": {
+    "maxRange": 12,
+    "noiseStd": 0.05
+  },
+  "mission": {
+    "timeBudget": 240
+  },
+  "initialSignal": {
+    "origin": {
+      "x": 0,
+      "y": 0
+    },
+    "strength": 0.22,
+    "direction": "E",
+    "timestamp": 0
+  },
+  "clueCount": 3,
+  "agent": {
+    "tickMs": 700,
+    "scanEvery": 5,
+    "strongThreshold": 0.6,
+    "weakThreshold": 0.25,
+    "farFloor": 0.6,
+    "commitRatio": 0.8
+  }
+}
